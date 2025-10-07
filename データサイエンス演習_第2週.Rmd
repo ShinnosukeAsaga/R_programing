@@ -1,0 +1,155 @@
+---
+title: "データサイエンス演習 第2週"
+author: "浅賀慎之助"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 準備
+
+```{r}
+# 必要パッケージのインストールと読み込み
+if(!require(readxl)) install.packages("readxl")
+if(!require(ggplot2)) install.packages("ggplot2")
+if(!require(dplyr)) install.packages("dplyr")
+if(!require(moments)) install.packages("moments")
+if(!require(e1071)) install.packages("e1071")
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(moments)
+library(e1071)
+```
+
+# データの読み込み
+
+```{r}
+# Excelファイルの読み込み（自分の環境に合わせてパスを変更）
+ibm <- read_excel("DS演習１ーデータ .xlsx", sheet = "IBM")
+apple <- read_excel("DS演習１ーデータ .xlsx", sheet = "APPLE")
+
+```
+
+# 基本統計量の算出
+
+```{r}
+mean_price <- mean(ibm$`IBM社株価終値（＄）`, na.rm = TRUE)
+median_price <- median(ibm$`IBM社株価終値（＄）`, na.rm = TRUE)
+max_price <- max(ibm$`IBM社株価終値（＄）`, na.rm = TRUE)
+min_price <- min(ibm$`IBM社株価終値（＄）`, na.rm = TRUE)
+
+cat("平均値:", mean_price, "\n")
+cat("中央値:", median_price, "\n")
+cat("最大値:", max_price, "\n")
+cat("最小値:", min_price, "\n")
+```
+
+# 分散・標準偏差・歪度・尖度
+
+```{r}
+ibm_close <- ibm$`IBM社株価終値（＄）`
+
+# 分散 (ddof=0)
+variance <- var(ibm_close) * (length(ibm_close) - 1) / length(ibm_close)
+
+# 母標準偏差
+std_dev <- sqrt(variance)
+# pandas と同等（補正あり）のスキュー／尖度
+skewness_val <- skewness(ibm_close, na.rm = TRUE, type = 2)   
+kurtosis_val <- kurtosis(ibm_close, na.rm = TRUE, type = 2)   
+
+cat("分散:", variance, "\n")
+cat("標準偏差:", std_dev, "\n")
+cat("歪度:", skewness_val, "\n")
+cat("尖度:", kurtosis_val, "\n")
+
+
+
+
+```
+
+# 週間収益率の計算
+
+```{r}
+ibm <- ibm %>%
+  mutate(Return = (lead(`IBM社株価終値（＄）`, 4) - `IBM社株価終値（＄）`) / `IBM社株価終値（＄）`)
+```
+
+# 折れ線グラフ
+
+```{r}
+ggplot(ibm, aes(x = 日付け, y = Return)) +
+  geom_line() +
+  ggtitle("IBM週間収益率の推移") +
+  xlab("日付") + ylab("週間収益率") +
+  theme_minimal()
+```
+
+# 箱ひげ図
+
+```{r}
+ggplot(ibm, aes(y = `IBM社株価終値（＄）`)) +
+  geom_boxplot(fill = "lightblue") +
+  ggtitle("IBM株価終値の箱ひげ図") +
+  ylab("株価終値（＄）") +
+  theme_minimal()
+```
+
+# 収益率の度数分布
+
+```{r}
+weekly_returns <- ibm$Return[!is.na(ibm$Return)]
+ggplot(data.frame(Return = weekly_returns), aes(x = Return)) +
+  geom_histogram(bins = 30, color = "black", fill = "skyblue") +
+  ggtitle("IBM週間収益率の度数分布") +
+  xlab("収益率") + ylab("頻度") +
+  theme_minimal()
+```
+
+# 四分位数の算出
+
+```{r}
+q1 <- quantile(weekly_returns, 0.25, na.rm = TRUE)
+q3 <- quantile(weekly_returns, 0.75, na.rm = TRUE)
+
+cat("第1四分位数:", q1, "\n")
+cat("第3四分位数:", q3, "\n")
+```
+```{r}
+
+# 5日ごとの収益率を計算
+
+apple <- apple %>%
+  mutate(Return = (lag(`APPLE社株価終値（＄）`, 4) - `APPLE社株価終値（＄）`) / `APPLE社株価終値（＄）`)
+
+returns <- tibble(
+  IBM = ibm$Return,
+  Apple = apple$Return
+) %>%
+  na.omit()
+
+# 散布図の描画
+ggplot(returns, aes(x = IBM, y = Apple)) +
+  geom_point(color = "steelblue") +
+  labs(
+    title = "IBM と Apple の週間収益率",
+    x = "IBM",
+    y = "Apple"
+  ) +
+  theme_minimal()
+
+```
+
+
+```{r}
+# 共分散と相関係数の計算
+cov_val <- cov(returns$IBM, returns$Apple)
+corr_val <- cor(returns$IBM, returns$Apple)
+
+cat("共分散:", cov_val, "\n")
+cat("相関係数:", corr_val, "\n")
+
+```
