@@ -1,0 +1,62 @@
+---
+title: "データサイエンス演習 第3回"
+output: html_document
+---
+
+# 演習課題1：単回帰分析
+
+```{r setup, include=FALSE}
+library(readxl)
+library(ggplot2)
+library(dplyr)
+data_path <- normalizePath("パスは自分で変える", mustWork = FALSE)
+
+```
+
+## データ読み込み
+```{r}
+data1 <- read_excel(data_path, sheet = "問題1_単回帰")
+```
+
+## 散布図
+```{r}
+ggplot(data1, aes(x = `広告費_X(万円)`, y = `売上_Y(万円)`)) +
+  geom_point(color = "blue", size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "広告費と売上の関係",
+       x = "広告費(万円)",
+       y = "売上(万円)")
+
+
+```
+
+## 単回帰モデルと結果
+```{r}
+# 単回帰モデル
+model1 <- lm(`売上_Y(万円)` ~ `広告費_X(万円)`, data = data1)
+
+# 結果の確認
+summary(model1)
+
+# 決定係数の表示
+cat("決定係数 R^2 =", summary(model1)$r.squared, "\n")
+
+```
+
+---
+
+# 演習課題2：重回帰分析（家賃の要因分析）
+
+## データ読み込み
+```{r}
+data2 <- read_excel(data_path, sheet = "問題2_重回帰")
+```
+
+
+## 重回帰分析の構築と結果
+```{r}
+model2 <- lm(`家賃_Y(万円/月)` ~ `広さ_X1(m2)` + `駅からの距離_X2(分)`, data = data2)
+summary(model2)
+cat("決定係数 R^2 =", summary(model2)$r.squared, "\n")
+```
+
