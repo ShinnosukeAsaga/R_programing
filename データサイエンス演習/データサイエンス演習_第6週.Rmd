@@ -45,7 +45,7 @@ PACFグラフを描き、ARモデルの次数pを決める。
 
 ### 0. ファイルのダウンロード
 ```{r}
-df1 <- read_excel("C://Users//shin2//Downloads//DS演習5data.xlsx", sheet = "data1")
+df1 <- read_excel("C://Users//ss//Downloads//DS演習5data.xlsx", sheet = "data1")
 df1 <- df1 %>%
   mutate(date = ymd(date))
 head(df1)
@@ -192,7 +192,7 @@ ggplot(plot_df, aes(x=date)) +
 
 ### 0.ファイルのインポート
 ```{r}
-df2 <- read_excel("C://Users//shin2//Downloads//DS演習5data.xlsx", sheet = "data2")
+df2 <- read_excel("C://Users//ss//Downloads//DS演習5data.xlsx", sheet = "data2")
 df2 <- df2 %>%
   mutate(date = ymd(date))
 head(df2)
@@ -431,3 +431,4 @@ ggplot(plot_df, aes(x = date)) +
 
 
 ```
+
