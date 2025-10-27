@@ -1,0 +1,433 @@
+---
+title: "データサイエンス演習_第6週"
+date: "2025-10-27"
+output: html_document
+---
+```{r}
+#install.packages("tseries")
+#install.packages("forecast")
+#install.packages("Metrics")
+#install.packages("dynlm")
+```
+
+```{r}
+# ライブラリのインポート
+library(readxl)
+library(dplyr)
+library(lubridate)
+library(tseries)
+library(forecast)
+library(ggplot2)
+library(Metrics)
+library(dynlm)
+library(gridExtra)
+```
+
+## 課題1
+
+次の手順に従って、AR(自己回帰)モデルを構築し、将来値を予測·評価しなさい。
+
+1. ADF検定(Augmented Dickey-Fuller test)\
+データの定常性を確認する。
+p値に基づいて判定する(p値$<0.05$→定常、p値$≥0.05$→非定常)。
+
+2.  PACF(偏自己相関関数)による次数(p)の選定:\
+PACFグラフを描き、ARモデルの次数pを決める。
+→ PACFが有意なラグで急に減衰する箇所を次数候補とする。
+
+3. 最尤推定法(MLE)によるパラメータ推定:\
+決定した次数 p を用いてARモデルをあてはめ、ARモデルの係数と誤差分散を推定する。
+
+4. 予測と精度評価\
+最後の5日間を予測し、予測値と実測値を折れ線グラフで重ねて表示する。
+予測精度を MAPE(平均絶対パーセント誤差)で評価し、
+予測がどの程度正確かを考察する
+
+### 0. ファイルのダウンロード
+```{r}
+df1 <- read_excel("C://Users//shin2//Downloads//DS演習5data.xlsx", sheet = "data1")
+df1 <- df1 %>%
+  mutate(date = ymd(date))
+head(df1)
+```
+
+### 1.ADF検定(Augmented Dickey-Fuller test)
+
+```{r}
+# df1 の "value" 列に対して ADF 検定を実施
+result <- adf.test(df1$value)
+
+# 結果の出力
+cat("ADF Statistic:", result$statistic, "\n")
+cat("p-value:", result$p.value, "\n")
+
+# 判定
+if (result$p.value < 0.05) {
+  cat("データは定常です（p-value < 0.05）\n")
+} else {
+  cat("データは非定常です（p-value >= 0.05）\n")
+}
+```
+※Warning in adf.test(df1$value) : p-value smaller than printed p-value　と出るが、力のp値をある範囲（たとえば0.01未満）でしか表示しないため、起きている警告である。
+
+
+### 2. PACF(偏自己相関関数)による次数(p)の選定
+
+```{r}
+ggPacf(df1$value, lag.max = 20) +
+  labs(
+    title = "PACF",
+    x = "Lags",
+    y = "Partial Autocorrelation"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_line(color = "grey"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+### 3.最尤推定法(MLE)によるパラメータ推定:
+```{r}
+# pの次数を指定
+p_order <- 2
+
+# データを訓練用とテスト用に分割（最後の5日間をテスト）
+train_size <- nrow(df1) - 5
+train <- df1[1:train_size, ]
+test  <- df1[(train_size + 1):nrow(df1), ]
+
+# ARモデルの構築と推定（最尤法）
+model_fit <- Arima(train$value, order = c(p_order, 0, 0))
+
+# 推定結果の表示
+summary(model_fit)
+print(coef(model_fit))
+cat("残差分散 =", model_fit$sigma2, "\n")
+
+# データ
+y <- df1$value
+
+# ラグ列を作成
+y_lag1 <- c(NA, y[-length(y)])
+y_lag2 <- c(NA, NA, y[-c(length(y), length(y)-1)])
+
+# データフレーム作成（最初の2行はNAなので除外）
+df_lag <- data.frame(
+  y = y[3:length(y)],
+  y_lag1 = y_lag1[3:length(y)],
+  y_lag2 = y_lag2[3:length(y)]
+)
+
+# 定数項付き線形回帰
+model_fit <- lm(y ~ y_lag1 + y_lag2, data = df_lag)
+
+# パラメータ表示
+coef(model_fit)
+
+```
+
+### 4.予測と精度評価
+```{r}
+# ラグ列作成
+y <- df1$value
+y_lag1 <- c(NA, y[-length(y)])
+y_lag2 <- c(NA, NA, y[-c(length(y), length(y)-1)])
+
+df_lag <- data.frame(
+  y = y[3:length(y)],
+  y_lag1 = y_lag1[3:length(y)],
+  y_lag2 = y_lag2[3:length(y)]
+)
+
+# AR(2) モデル（定数項付き）
+model_fit <- lm(y ~ y_lag1 + y_lag2, data = df_lag)
+
+# 将来5日間の予測
+TEST_HORIZON <- nrow(test)
+last_values <- tail(y, 2)
+forecast_values <- numeric(TEST_HORIZON)
+for(i in 1:TEST_HORIZON){
+  forecast_values[i] <- coef(model_fit)[1] + 
+                        coef(model_fit)[2]*last_values[2] + 
+                        coef(model_fit)[3]*last_values[1]
+  last_values <- c(last_values[2], forecast_values[i])
+}
+
+# MAE / MAPE 計算
+mae_val <- mae(test$value, forecast_values)
+mask <- test$value != 0
+mape_val <- if(any(mask)){
+  mean(abs((test$value[mask]-forecast_values[mask])/test$value[mask]))*100
+} else NA
+
+cat("予測精度\n")
+cat(sprintf("MAE  = %.4f\n", mae_val))
+cat(sprintf("MAPE = %.2f %%\n", mape_val))
+
+# プロット用データフレーム
+plot_df <- data.frame(
+  date = df1$date,
+  actual = df1$value,
+  fitted = c(fitted(model_fit), rep(NA, 2)),
+  forecast = c(rep(NA, nrow(df1)-TEST_HORIZON), forecast_values)
+)
+
+# 可視化
+ggplot(plot_df, aes(x=date)) +
+  geom_line(aes(y=actual, color="実測値"), linewidth=1.2) +
+  geom_line(aes(y=fitted, color="モデル予測値"), linewidth=1.2, linetype="dashed") +
+  geom_line(aes(y=forecast, color="5日先予測"), linewidth=1.2, linetype="dotted") +
+  geom_rect(aes(xmin=min(test$date), xmax=max(test$date), ymin=-Inf, ymax=Inf),
+            fill="gray", alpha=0.2, inherit.aes=FALSE) +
+  labs(title=paste0("ARモデル (p=2) の予測"),
+       x="Date", y="Value", color="凡例") +
+  theme_minimal(base_size=14) +
+  theme(plot.title=element_text(hjust=0.5),
+        legend.position="bottom")
+
+```
+## 課題2
+
+### 0.ファイルのインポート
+```{r}
+df2 <- read_excel("C://Users//shin2//Downloads//DS演習5data.xlsx", sheet = "data2")
+df2 <- df2 %>%
+  mutate(date = ymd(date))
+head(df2)
+```
+
+###1.ADF 検定(Augmented Dickey-Fuller test)
+
+```{r}
+cat("元データのADF検定結果\n")
+result_original <- adf.test(df2$value)
+
+cat(sprintf("ADF Statistic: %.6f\n", result_original$statistic))
+cat(sprintf("p-value: %.6f\n", result_original$p.value))
+
+if(result_original$p.value < 0.05){
+  cat("元データは定常\n")
+} else {
+  cat("元データは非定常\n")
+}
+
+# -------------------------------
+# 1次差分系列の作成とADF検定
+# -------------------------------
+df2_diff1 <- diff(df2$value)
+cat("\n1次差分系列のADF検定結果\n")
+result_diff1 <- adf.test(df2_diff1)
+
+cat(sprintf("ADF Statistic: %.6f\n", result_diff1$statistic))
+cat(sprintf("p-value: %.6f\n", result_diff1$p.value))
+
+if(result_diff1$p.value < 0.05){
+  cat("1次差分系列は定常\n")
+} else {
+  cat("1次差分系列は非定常\n")
+}
+```
+
+## 2.自己相関分析(ACF/PACF)
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+# 差分系列
+df2_diff1 <- diff(df2$value)
+n <- length(df2_diff1)
+
+# ACF/PACF 計算
+acf_res <- acf(df2_diff1, lag.max = 30, plot = FALSE)
+pacf_res <- pacf(df2_diff1, lag.max = 30, plot = FALSE)
+
+# 95%信頼区間
+conf_level <- 1.96 / sqrt(n)
+
+# データフレーム化
+acf_df <- data.frame(
+  lag = acf_res$lag[-1],
+  acf = acf_res$acf[-1]
+)
+
+pacf_df <- data.frame(
+  lag = pacf_res$lag,
+  pacf = pacf_res$acf
+)
+
+# 共通テーマ
+python_theme <- theme(
+  panel.background = element_rect(fill = "white"),
+  panel.grid.major = element_line(color = "gray"),
+  panel.grid.minor = element_line(color = "gray"),
+  axis.line = element_line(color = "black"),
+  plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+  axis.title = element_text(size = 14),
+  axis.text = element_text(size = 12)
+)
+
+# ACFプロット
+p1 <- ggplot(acf_df, aes(x = lag, y = acf)) +
+  geom_col(fill = "blue", color = "blue", width = 0.7) +
+  geom_hline(yintercept = 0, color = "black") +
+  geom_hline(yintercept = conf_level, linetype = "dashed", color = "red") +
+  geom_hline(yintercept = -conf_level, linetype = "dashed", color = "red") +
+  labs(title = "ACF", x = "Lag", y = "ACF") +
+  python_theme
+
+# PACFプロット
+p2 <- ggplot(pacf_df, aes(x = lag, y = pacf)) +
+  geom_col(fill = "orange", color = "orange", width = 0.7) +
+  geom_hline(yintercept = 0, color = "black") +
+  geom_hline(yintercept = conf_level, linetype = "dashed", color = "red") +
+  geom_hline(yintercept = -conf_level, linetype = "dashed", color = "red") +
+  labs(title = "PACF", x = "Lag", y = "PACF") +
+  python_theme
+
+# 横並び表示
+grid.arrange(p1, p2, ncol = 2)
+
+```
+
+###3.AICによるモデル選択
+```{r}
+train_size <- nrow(df2) - 5
+train <- df2[1:train_size, ]
+test  <- df2[(train_size+1):nrow(df2), ]
+
+# d は ADF検定結果から 1 と仮定
+d <- 1
+
+results <- data.frame(p=integer(),
+                      d=integer(),
+                      q=integer(),
+                      AIC=double())
+
+best_aic <- Inf
+best_order <- NULL
+best_model <- NULL
+
+cat("\n (p,d,q) の AIC\n")
+for (p in 0:2) {
+  for (q in 0:2) {
+    order <- c(p, d, q)
+    tryCatch({
+      if(nrow(train) == 0){
+        cat(sprintf("Skipping ARIMA(%d,%d,%d): Training data is empty.\n", p,d,q))
+        next
+      }
+      
+      fit <- Arima(train$value, order=order)
+      aic_val <- AIC(fit)
+      
+      results <- rbind(results, data.frame(p=p, d=d, q=q, AIC=aic_val))
+      cat(sprintf("ARIMA(%d,%d,%d)  AIC = %.3f\n", p,d,q, aic_val))
+      
+      if(aic_val < best_aic){
+        best_aic <- aic_val
+        best_order <- order
+        best_model <- fit
+      }
+      
+    }, error = function(e){
+      cat(sprintf("ARIMA(%d,%d,%d) -> エラー: %s\n", p,d,q, e$message))
+    })
+  }
+}
+
+# AIC 小さい順に表示
+aic_df <- results %>% arrange(AIC)
+cat("\nAIC 小さい順\n")
+print(head(aic_df, 10))
+
+cat(sprintf("\n採用モデル: ARIMA(%d,%d,%d) (AIC=%.3f)\n",
+            best_order[1], best_order[2], best_order[3], best_aic))
+```
+
+###4. 最尤推定法(MLE)によるパラメータ推定
+```{r}
+cat("\nMLE推定結果\n")
+print(best_model)  # summary() 相当の情報を表示
+
+# 係数（推定値）
+cat("\n係数（推定値）:\n")
+print(coef(best_model))
+
+sigma2 <- best_model$sigma2
+cat(sprintf("\n誤差分散 (sigma2) = %.6f\n", sigma2))
+```
+
+###5.予測と精度評価
+```{r}
+TEST_HORIZON <- nrow(test)
+
+# テスト期間の予測
+forecast_result <- forecast(best_model, h = TEST_HORIZON)
+forecast_values <- as.numeric(forecast_result$mean)
+
+# 評価指標（テスト期間）
+actual_test <- test$value
+
+# MAE, RMSE
+mae_val <- mae(actual_test, forecast_values)
+rmse_val <- rmse(actual_test, forecast_values)
+
+mask <- actual_test != 0
+if(any(mask)){
+  mape_val <- mean(abs((actual_test[mask] - forecast_values[mask]) / actual_test[mask])) * 100
+} else {
+  mape_val <- NA
+
+}
+
+fitted_all <- fitted(best_model)  # 訓練期間のモデル出力
+
+# 評価指標（全期間）
+all_actual <- df2$value
+all_pred <- c(fitted_all, rep(NA, TEST_HORIZON))
+mask_all <- all_actual != 0 & !is.na(all_pred)
+if(any(mask_all)){
+  mae_all <- mae(all_actual[mask_all], all_pred[mask_all])
+  rmse_all <- rmse(all_actual[mask_all], all_pred[mask_all])
+  mape_all <- mean(abs((all_actual[mask_all] - all_pred[mask_all]) / all_actual[mask_all])) * 100
+} else {
+  mae_all <- rmse_all <- mape_all <- NA
+}
+
+cat("\n 予測精度 \n")
+cat("【ARIMAモデル評価（テスト期間）】\n")
+cat(sprintf("MAE  : %.4f\n", mae_val))
+cat(sprintf("RMSE : %.4f\n", rmse_val))
+cat(sprintf("MAPE : %s %%\n", ifelse(is.na(mape_val), "NA", round(mape_val,2))))
+
+cat("\n【ARIMAモデル評価（全期間）】\n")
+cat(sprintf("MAE (全期間)  : %.4f\n", mae_all))
+cat(sprintf("RMSE (全期間) : %.4f\n", rmse_all))
+cat(sprintf("MAPE (全期間) : %s %%\n", ifelse(is.na(mape_all), "NA", round(mape_all,2))))
+
+
+plot_df <- data.frame(
+  date = df2$date,
+  actual = df2$value,
+  fitted = all_pred
+)
+
+ggplot(plot_df, aes(x = date)) +
+  geom_line(aes(y = actual, color = "実測値"), size = 1) +
+  geom_line(aes(y = fitted, color = sprintf("ARIMA(%d,%d,%d) 出力", best_order[1], best_order[2], best_order[3])),
+            linetype = "dashed", size = 1) +
+  geom_rect(aes(xmin = test$date[1], xmax = test$date[TEST_HORIZON], ymin = -Inf, ymax = Inf),
+            fill = "gray", alpha = 0.2, inherit.aes = FALSE) +
+  labs(title = sprintf("実測 vs ARIMA(%d,%d,%d) 出力（テストMAPE=%s%%）",
+                       best_order[1], best_order[2], best_order[3],
+                       ifelse(is.na(mape_val),"NA", round(mape_val,2))),
+       x = "Date", y = "Value", color = "凡例") +
+  theme_minimal(base_size = 14) +
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom")
+
+
+```
