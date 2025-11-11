@@ -1,0 +1,428 @@
+---
+title: "データサイエンス第8週"
+author: "Asg"
+date: "2025-11-11"
+output: html_document
+---
+```{r}
+#install.packages("arules")
+#install.packages("arulesViz")
+#install.packages("rpart")
+#install.packages("rpart.plot")
+#install.packages("caret")
+```
+## 2-1
+次に⽰すデータ「道端の野菜（無⼈）販売所での取引」を使って，アソシエーション分析の⽀持度，信頼度，リフト値を説明してください．例として，$X=\{'カボチャ'\}$,$Y=\{'マメ'\}$の場合の，$X⇒Y$の⽀持度，信頼度，リフト値を求めてください．これは定義を確認する問題なので，プログラムを書かずに⼿で計算してから，プログラムで確認してください．補⾜：リフトが$1+x$なら，カボチャの購買がマメの購買を$100x $%押し上げるということです
+
+```{r}
+# 1. ライブラリのインポート
+suppressWarnings({
+  library(arules)
+})
+
+# 2. データをリスト形式で準備
+dataset <- list(
+  c("ブロッコリー","ピーマン","トウモロコシ"),
+  c("アスパラガス","カボチャ","トウモロコシ"),
+  c("トウモロコシ","トマト","マメ","カボチャ"),
+  c("ピーマン","トウモロコシ","トマト","マメ"),
+  c("マメ","アスパラガス","ブロッコリー"),
+  c("カボチャ","アスパラガス","マメ","トマト"),
+  c("トマト","トウモロコシ"),
+  c("ブロッコリー","トマト","ピーマン"),
+  c("カボチャ","アスパラガス","マメ"),
+  c("マメ","トウモロコシ"),
+  c("ピーマン","ブロッコリー","マメ","カボチャ"),
+  c("アスパラガス","マメ","カボチャ"),
+  c("カボチャ","トウモロコシ","アスパラガス","マメ"),
+  c("トウモロコシ","ピーマン","トマト","マメ","ブロッコリー")
+)
+
+# 3. トランザクション形式に変換
+trans <- as(dataset, "transactions")
+
+# データの確認
+summary(trans)
+
+# 4. Aprioriアルゴリズムで頻出アイテム集合を取得
+frequent_itemsets <- apriori(trans, parameter = list(supp = 0.1, target = "frequent itemsets"))
+
+# 5. 信頼度0.5以上のルールを抽出
+rules <- apriori(trans, parameter = list(supp = 0.1, conf = 0.5, target = "rules"))
+
+# 6. 「カボチャ ⇒ マメ」のルールのみ表示
+subset_rule <- subset(rules, lhs %in% "カボチャ" & rhs %in% "マメ")
+inspect(subset_rule)
+```
+
+## 2-2
+ 教科書と同様のデータセット（Groceries）を 使って ,beefを買った⼈はほかにどういうものを買っていたかを調べる⽅法を説明してください．
+
+ ここでは.A⇒{`beef`}\という形のルールで，⽀持度0.005以上，信頼度0.01以上のものを抽出することにしましょう
+
+抽出されたルールの中で信頼度が最も⼤きいものの前提部（antecedents）は 何ですか？ヒント：信頼度は0.167382になるはずです
+
+```{r}
+library(arules)
+
+# データ取得（Groceries CSV）
+url <- "https://raw.githubusercontent.com/stedy/Machine-Learning-with-R-datasets/master/groceries.csv"
+temp <- tempfile()
+download.file(url, temp, quiet = TRUE)
+
+# CSVを1行1トランザクションとして読み込み
+# arulesのread.transactions()を使用
+groceries <- read.transactions(temp, format = "basket", sep = ",")
+
+# データ概要確認
+summary(groceries)
+
+# 頻出アイテム集合（support >= 0.005）
+freq_itemsets <- apriori(groceries, parameter = list(supp = 0.005, target = "frequent itemsets"))
+
+# アソシエーションルール抽出（confidence >= 0.01）
+rules <- apriori(groceries, parameter = list(supp = 0.005, conf = 0.01, target = "rules"))
+
+# beef を含むルールのみ抽出（右辺にbeefがあるもの）
+rules_beef <- subset(rules, rhs %in% "beef")
+
+# 信頼度の高い順に並べ替え
+rules_beef_sorted <- sort(rules_beef, by = "confidence", decreasing = TRUE)
+
+# 上位ルールを表示
+inspect(head(rules_beef_sorted))
+```
+## 2-3
+サンフランシスコベイエリアで⾏ったアンケートの結果をまとめた，
+Incomeというデータを使います．
+R⽤のデータをCSVにしたものをダウンロードします
+
+
+```
+# CSVデータの読み込み
+url <- "https://wolfr.am/1yG7dJJ6N"
+data <- read.csv(url)
+
+# データの確認
+str(data)
+```
+
+
+
+データについての説明を参照しながら，どういうデータなのかを確認しましょう．各列の値を⾒てみます．
+
+```
+for(col in colnames(data)) {
+  cat("--- Column:", col, "---\n")
+  print(table(data[[col]], useNA="ifany"))
+  cat("\n")
+}
+```
+
+アソシエーション分析のためにワンホットエンコーディング（ただし，値は0/1ではなく，bool値つまりTrue/False）にします．
+
+```
+data_factor <- data %>% mutate(across(everything(), as.factor))
+
+# transactions 形式に変換
+trans <- as(data_factor, "transactions")
+
+# 5. 列名（アイテム名）確認
+itemLabels(trans)
+ ```
+変換後の列名を確認しておきましょう．⾼収⼊は'income_$40,000+' です
+
+`g0.columns`
+
+収⼊が多い⼈の特徴を⾒つける⽅法を説明してください．具体的には，⽀持度（
+support）が 0.1以上，信頼度（confidence）が 0.8以上，リフト値が2より⼤きいルールで，結論部が'income_$40,000+' だけのものを抽出して，⽀持度の降順（⼤きい順）に並べ替えてください．⽀持度が最も⼤きいルールの前提部（antecedents）は 何ですか
+？
+
+ヒント：⽀持度は0.138453になるはずです
+```{r}
+library(arules)
+library(arulesViz)
+
+# CSVデータの読み込み
+url <- "https://wolfr.am/1yG7dJJ6N"
+data <- read.csv(url)
+
+# データの確認
+str(data)
+
+# arules用にワンホット形式に変換（factorをtransactionsに）
+# 各行をトランザクション化
+tmp <- as(data, "transactions")
+
+# 頻出アイテム集合を抽出（support >= 0.1）
+frequent_itemsets <- apriori(tmp, parameter = list(supp = 0.1, target = "frequent itemsets"))
+
+# アソシエーションルール抽出（confidence >= 0.8）
+rules <- apriori(tmp, parameter = list(supp = 0.1, conf = 0.8, target = "rules"))
+
+# 'income=$40,000+' が結果部（rhs）に含まれるルールを抽出
+high_income_rules <- subset(rules, rhs %in% "income=$40,000+")
+
+# 支持度の降順にソート
+high_income_rules_sorted <- sort(high_income_rules, by = "support", decreasing = TRUE)
+
+# 結果を表示
+inspect(head(high_income_rules_sorted, 5))
+```
+
+## 2-4
+
+架空の試験の結果のデータです．このデータを元にして，成績（grade）を予測する分類⽊を構築したいと思います．最初の分岐は変数P，Q，Rのどれで⾏えばよいでしょうか．ジニ係数を計算して結論を出してください．これは定義を確認する問題なので，プログラムを書かずに⼿で計算してください．その後でプログラムで確認してもかまいません．平均ジニ係数が最も⼩さくなる分岐が選ばれます．
+
+注意：ここで⽤いているジニ係数（Gini impurity）は不純度の指標です（
+Wikipedia: Gini impurity）．
+所得の不平等具合の指標も「ジニ係数（Gini coefficient）」といいますが，別物です（
+Wikipedia: ジニ係数）
+
+
+
+```
+data <- data.frame(
+  P = c(1,0,1,0,1,0),
+  Q = c(1,0,0,1,1,0),
+  R = c(0,0,1,1,1,1),
+  grade = c('B','A','B','A','C','B')
+)
+```
+```{r}
+# データ作成
+data <- data.frame(
+  P = c(1,0,1,0,1,0),
+  Q = c(1,0,0,1,1,0),
+  R = c(0,0,1,1,1,1),
+  grade = c('B','A','B','A','C','B')
+)
+
+# Gini関数
+gini <- function(x) {
+  p <- table(x) / length(x)
+  1 - sum(p^2)
+}
+
+# 各列での分割Gini計算
+for (col in c('P','Q','R')) {
+  gini_split <- 0
+  for (val in unique(data[[col]])) {
+    subset <- data[data[[col]] == val, ]
+    gini_split <- gini_split + (nrow(subset)/nrow(data)) * gini(subset$grade)
+  }
+  cat(col, round(gini_split, 4), "\n")
+}
+
+```
+## 2-5
+問題2-4のデータを元に構築した決定⽊（最⼤深さ2）の正解率（訓練）を求める⽅法を説明して，値を求めてください．次に，変数Pを使わない（変数QとRだけを使う）場合の決定⽊（最⼤深さ2）の正解率（訓練）を求めて，⼆つの正解率（訓練）を⽐較してください
+```{R}
+# 必要なパッケージ
+library(rpart)
+library(dplyr)
+
+# データ定義（Pythonと同じ）
+data <- data.frame(
+  P = c(1, 0, 1, 0, 1, 0),
+  Q = c(1, 0, 0, 1, 1, 0),
+  R = c(0, 0, 1, 1, 1, 1),
+  grade = factor(c("B", "A", "B", "A", "C", "B"))
+)
+
+set.seed(0)  # Pythonの random_state=0 に対応
+
+# P,Q,Rすべて使用（最大深さ2, ジニ係数）
+tree_all <- rpart(
+  grade ~ P + Q + R,
+  data = data,
+  method = "class",
+  parms = list(split = "gini"),
+  control = rpart.control(cp = 0, maxdepth = 2, minsplit = 1, minbucket = 1)
+)
+
+pred_all <- predict(tree_all, data, type = "class")
+accuracy_all <- mean(pred_all == data$grade)
+cat("P,Q,R使用の訓練正解率:", accuracy_all, "\n")
+
+#  Pを使わず Q,R のみ使用
+tree_qr <- rpart(
+  grade ~ Q + R,
+  data = data,
+  method = "class",
+  parms = list(split = "gini"),
+  control = rpart.control(cp = 0, maxdepth = 2, minsplit = 1, minbucket = 1)
+)
+
+pred_qr <- predict(tree_qr, data, type = "class")
+accuracy_qr <- mean(pred_qr == data$grade)
+cat("Q,R使用（Pを使わない）の訓練正解率:", accuracy_qr, "\n")
+
+
+```
+## 2-6
+次のコードで⽣成されるデータフレームは，客船タイタニック号の事故における乗客乗員の⽣死の記録です．この記録を元に，⽣死を予測する決定⽊を作る⽅法を説明してください．決定⽊の⾼さを最⼤1（0，1の2段階）にしたときの，正解率（訓練）はどの程度になるでしょうか．
+
+```{r}
+# パッケージ読み込み
+library(rpart)
+library(caret)   # confusionMatrixなど使う場合に便利
+
+# Titanic データ取得
+titanic <- read.csv("https://wolfr.am/1yG7k5gMo")
+
+# 目的変数と説明変数の分離
+y <- titanic$Survived
+X <- titanic[, setdiff(names(titanic), "Survived")]
+
+# Rではfactor型を自動で扱えるので、ワンホットエンコードは不要
+# （ただしPythonのdrop_first=Trueと同等の結果になるようにfactorに変換）
+for (col in names(X)) {
+  if (is.character(X[[col]]) || is.logical(X[[col]])) {
+    X[[col]] <- factor(X[[col]])
+  }
+}
+
+# 結合データを作る
+df <- cbind(X, Survived = factor(y))
+
+# 深さ1の決定木（Python: max_depth=1 に対応）
+set.seed(0)
+tree <- rpart(
+  Survived ~ .,
+  data = df,
+  method = "class",
+  parms = list(split = "gini"),  # sklearnと同じ
+  control = rpart.control(maxdepth = 1, cp = 0, minsplit = 1, minbucket = 1)
+)
+
+# 予測と精度
+pred <- predict(tree, df, type = "class")
+acc <- mean(pred == df$Survived)
+cat("正解率(訓練, 深さ1):", acc, "\n")
+
+
+```
+
+
+## 2-7
+
+問題2-3で使ったデータIncomeの変数incomeを出⼒変数にして，決定⽊を作ってください．構築される決定⽊からわかることと，アソシエーション分析の結果を⽐べて考察してください．
+
+```{r}
+# パッケージの読み込み
+library(rpart)
+library(rpart.plot)
+library(dplyr)
+
+# データ読み込み
+df <- read.csv("https://wolfr.am/1yG7dJJ6N")
+
+# 目的変数と説明変数の分離
+y <- df$income
+X <- df %>% select(-income)
+
+# カテゴリ変数をダミー変数化
+X_encoded <- model.matrix(~ . - 1, data = X) %>% as.data.frame()
+
+# 決定木モデルの学習
+set.seed(0)
+tree <- rpart(y ~ ., data = X_encoded, method = "class", control = rpart.control(maxdepth = 3))
+
+# 決定木の可視化
+rpart.plot(tree, type = 2, extra = 104, fallen.leaves = TRUE, main = "Decision Tree (max_depth=3)")
+
+# 訓練データでの正解率
+pred <- predict(tree, X_encoded, type = "class")
+accuracy <- mean(pred == y)
+cat("訓練正解率:", accuracy, "\n")
+```
+## 2-8
+ https://www.kaggle.com/competitions/titanic に決定⽊で挑戦する⽅法を説明してください．決定⽊を使った場合の結果をアップロードして，スコアを確認してください．この問題は，決定⽊で挑戦する⽅法を確認するためのものなので，好成績を⽬指す必要はありません．
+ 
+詳しいやり方はパワポ参照
+```
+# 1. 必要ライブラリ
+library(tidyverse)
+library(rpart)
+library(randomForest)
+library(caret)
+library(stringr)
+
+# 2. データ読み込み
+# Kaggle環境の場合
+train <- read.csv("/kaggle/input/taitanic1/train.csv")
+test  <- read.csv("/kaggle/input/taitanic1/test.csv")
+
+# 3. 前処理 ----------------------------------
+
+# Mode関数（最頻値）
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# 欠損値処理
+train$Age[is.na(train$Age)] <- median(train$Age, na.rm = TRUE)
+test$Age[is.na(test$Age)]   <- median(train$Age, na.rm = TRUE)
+
+train$Fare[is.na(train$Fare)] <- median(train$Fare, na.rm = TRUE)
+test$Fare[is.na(test$Fare)]   <- median(test$Fare, na.rm = TRUE)
+
+train$Embarked[is.na(train$Embarked)] <- Mode(train$Embarked)
+test$Embarked[is.na(test$Embarked)]   <- Mode(train$Embarked)
+
+# 特徴量作成
+train$FamilySize <- train$SibSp + train$Parch + 1
+test$FamilySize  <- test$SibSp + test$Parch + 1
+
+# 名前から敬称抽出
+train$Title <- str_extract(train$Name, " ([A-Za-z]+)\\.")
+test$Title  <- str_extract(test$Name, " ([A-Za-z]+)\\.")
+
+# 3-3. カテゴリ・数値変数
+categorical_features <- c("Sex", "Embarked", "Pclass", "Title")
+numerical_features   <- c("Age", "Fare", "FamilySize", "SibSp", "Parch")
+y_train <- as.factor(train$Survived)
+
+# One-hot encoding（列名をdata.frame化）
+train_enc <- model.matrix(~ Sex + Embarked + Pclass + Title - 1, data=train) %>% as.data.frame()
+test_enc  <- model.matrix(~ Sex + Embarked + Pclass + Title - 1, data=test) %>% as.data.frame()
+
+# 数値列結合
+X_train <- cbind(train_enc, train[, numerical_features])
+X_test  <- cbind(test_enc,  test[, numerical_features])
+
+# 予測用データ列を学習列に合わせる
+missing_cols <- setdiff(colnames(X_train), colnames(X_test))
+for (col in missing_cols) X_test[[col]] <- 0
+X_test <- X_test[, colnames(X_train)]
+
+# 4. 決定木モデル ----------------------------------
+train_df <- cbind(X_train, Survived=y_train)
+set.seed(42)
+tree_model <- rpart(Survived ~ ., data=train_df, control=rpart.control(maxdepth=5))
+
+train_pred_tree <- predict(tree_model, newdata=X_train, type="class")
+cat("決定木訓練データ正解率:", mean(train_pred_tree == y_train), "\n")
+
+# 5. ランダムフォレストモデル ----------------------------------
+set.seed(42)
+rf_model <- randomForest(x=X_train, y=y_train, ntree=200, maxnodes=2^5)
+
+# 交差検証（5-fold CV）
+cv <- train(x=X_train, y=y_train, method="rf",
+            trControl=trainControl(method="cv", number=5),
+            tuneGrid=data.frame(mtry=floor(sqrt(ncol(X_train)))))
+cat("Random Forest CV平均スコア:", mean(cv$results$Accuracy), "\n")
+
+# 訓練データ精度
+train_pred_rf <- predict(rf_model, X_train)
+cat("Random Forest 訓練データ正解率:", mean(train_pred_rf == y_train), "\n")
+
+# 6. 提出用予測 ----------------------------------
+test_pred <- predict(rf_model, X_test)
+submission <- data.frame(PassengerId=test$PassengerId, Survived=test_pred)
+write.csv(submission, "submission_rf.csv", row.names=FALSE)
+cat("submission_rf.csv を作成しました")
+```
