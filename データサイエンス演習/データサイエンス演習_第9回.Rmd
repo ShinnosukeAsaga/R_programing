@@ -111,13 +111,10 @@ b_val <- sol[2]
 cat(sprintf("a = %.9f\n", a_val))
 cat(sprintf("b = %.9f\n", b_val))
 
-# L を symbolic に構築
 L <- Reduce(`+`, (y - (a * x + b))^2)
 
 # ∂L/∂a
 da <- deriv(L, "a")
-
-#式 → 文字列へ変換してから Expand に渡す
 da_str <- yac_str(da)
 da_expanded <- yac(paste0("Expand(", da_str, ")"))
 
@@ -154,18 +151,14 @@ cat(sprintf("相関係数 = %.3f\n", r))
 # ライブラリ
 library(ggplot2)
 library(dplyr)
-
-# Anscombeデータセット
 data(anscombe)
 
-# データをtidy形式に変換
 df <- anscombe %>%
   tidyr::pivot_longer(cols = everything(),
                       names_to = c(".value", "dataset"),
                       names_pattern = "([xy])(\\d)") %>%
   mutate(dataset = paste0("I", dataset))  # ラベルをPythonと同じに
 
-# データごとに回帰とR^2計算、プロット
 plots <- list()
 for(label in unique(df$dataset)) {
   subdf <- df %>% filter(dataset == label)
@@ -222,7 +215,6 @@ library(readr)
 url <- "https://www.statlearning.com/s/Advertising.csv"
 data <- read_csv(url)
 
-# デザイン行列 X（切片 + TV, radio, newspaper）
 X <- as.matrix(cbind(1, data[, c("TV", "radio", "newspaper")]))
 
 # 目的変数 y
@@ -231,7 +223,6 @@ y <- as.matrix(data$sales)
 # Hat 行列 H の計算
 H <- X %*% solve(t(X) %*% X) %*% t(X)
 
-# Hat 行列の跡（trace）
 trace_H <- sum(diag(H))
 cat("ans =", trace_H, "\n")
 ```
@@ -245,8 +236,6 @@ library(readr)
 # データ読み込み
 url <- "https://www.statlearning.com/s/Advertising.csv"
 data <- read_csv(url, col_names = TRUE)
-
-# 列名を Python と同じに
 colnames(data) <- c("index", "TV", "radio", "newspaper", "sales")
 
 
@@ -308,3 +297,4 @@ cat("RMSE (x1, x2):", rmse1, "\n")
 cat("RMSE (x1, x2, x3):", rmse2, "\n")
 
 ```
+
