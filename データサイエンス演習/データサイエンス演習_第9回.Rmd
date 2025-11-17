@@ -1,0 +1,310 @@
+---
+title: "データサイエンス演習_グループA_第9週"
+author: "Asg"
+date: "2025-11-17"
+output: html_document
+---
+```{r}
+#install.packages("Ryacas")
+```
+
+## 3-1
+
+```{r}
+# 必要なライブラリ
+library(dplyr)
+
+# データの読み込み
+my_df <- data.frame(
+  i = c("x", "y"),
+  `0` = c(1, 7),
+  `1` = c(3, 1),
+  `2` = c(6, 6),
+  `3` = c(10, 14)
+)
+
+# 表示
+print(my_df)
+
+# X, y の作成（i列でフィルタ）
+X <- my_df %>% filter(i == "x") %>% select(-i)
+y <- my_df %>% filter(i == "y") %>% select(-i)
+
+# データを縦ベクトルに
+X <- as.numeric(as.matrix(X))
+y <- as.numeric(as.matrix(y))
+
+# 単回帰モデル
+model <- lm(y ~ X)
+
+# 予測値
+y_pred <- predict(model)
+
+# プロット
+plot(X, y,
+     main = "単回帰分析",
+     xlab = "x軸",
+     ylab = "y軸",
+     pch = 19,
+     col = "blue")
+lines(X, y_pred, col = "red", lwd = 2)
+grid()
+
+# 決定係数 (R^2)
+r_squared <- summary(model)$r.squared
+cat(sprintf("決定係数: %.3f\n", r_squared))
+
+```
+
+## 3-2
+
+```{r}
+# データ
+x <- c(1, 3, 6, 10)
+y <- c(7, 1, 6, 14)
+
+# 目的関数（誤差二乗和）
+loss <- function(params) {
+  a <- params[1]
+  b <- params[2]
+  sum((y - (a * x + b))^2)
+}
+
+# 初期値
+init <- c(0, 0)
+
+# 最適化（最小化）
+res <- optim(par = init, fn = loss)
+
+a <- res$par[1]
+b <- res$par[2]
+
+cat(sprintf("a = %.2f, b = %.2f\n", a, b))
+
+```
+
+## 3-3
+
+```{r}
+library(Ryacas)
+
+# 記号の定義
+a <- ysym("a")
+b <- ysym("b")
+
+x <- c(1, 3, 6, 10)
+y <- c(7, 1, 6, 14)
+
+n <- length(x)
+
+# 正規方程式の行列
+A <- matrix(c(sum(x^2), sum(x),
+              sum(x),    n), nrow = 2, byrow = TRUE)
+bvec <- c(sum(x * y), sum(y))
+
+# a, b の最小二乗解
+sol <- solve(A, bvec)
+
+a_val <- sol[1]
+b_val <- sol[2]
+
+cat(sprintf("a = %.9f\n", a_val))
+cat(sprintf("b = %.9f\n", b_val))
+
+# L を symbolic に構築
+L <- Reduce(`+`, (y - (a * x + b))^2)
+
+# ∂L/∂a
+da <- deriv(L, "a")
+
+#式 → 文字列へ変換してから Expand に渡す
+da_str <- yac_str(da)
+da_expanded <- yac(paste0("Expand(", da_str, ")"))
+
+cat("dL/da = ", da_expanded, "\n")
+
+
+```
+
+## 3-4
+
+```{r}
+# データ
+x <- c(1, 3, 6, 10)
+y <- c(7, 1, 6, 14)
+
+# 共分散と分散
+Sxy <- cov(x, y) * (length(x) - 1) / length(x)  # 母分散・母共分散に調整
+Sxx <- var(x) * (length(x) - 1) / length(x)
+
+# 回帰係数
+a <- Sxy / Sxx
+b <- mean(y) - a * mean(x)
+
+# 相関係数
+r <- cor(x, y)
+
+# 出力
+cat(sprintf("a = %.3f, b = %.3f\n", a, b))
+cat(sprintf("相関係数 = %.3f\n", r))
+```
+
+## 3-5
+```{r}
+# ライブラリ
+library(ggplot2)
+library(dplyr)
+
+# Anscombeデータセット
+data(anscombe)
+
+# データをtidy形式に変換
+df <- anscombe %>%
+  tidyr::pivot_longer(cols = everything(),
+                      names_to = c(".value", "dataset"),
+                      names_pattern = "([xy])(\\d)") %>%
+  mutate(dataset = paste0("I", dataset))  # ラベルをPythonと同じに
+
+# データごとに回帰とR^2計算、プロット
+plots <- list()
+for(label in unique(df$dataset)) {
+  subdf <- df %>% filter(dataset == label)
+  
+  # 線形回帰
+  model <- lm(y ~ x, data=subdf)
+  r2 <- summary(model)$r.squared
+  cat(sprintf("%s: R^2 = %.3f\n", label, r2))
+  
+  # プロット
+  p <- ggplot(subdf, aes(x=x, y=y)) +
+    geom_point() +
+    geom_smooth(method="lm", se=FALSE, color="red") +
+    ggtitle(label)
+  plots[[label]] <- p
+}
+
+# すべてのプロットを表示
+library(gridExtra)
+do.call(grid.arrange, c(plots, ncol=2))
+```
+
+## 3-6
+
+```{r}
+# ライブラリ
+library(readr)
+
+# データ読み込み
+url <- "https://www.statlearning.com/s/Advertising.csv"
+data <- read_csv(url)
+
+# データ確認
+head(data)
+
+# 線形回帰（sales ~ TV + radio + newspaper）
+model <- lm(sales ~ TV + radio + newspaper, data=data)
+
+# 回帰結果の表示
+summary(model)
+
+# 予測（新しいデータ: const=1, TV=100, radio=50, newspaper=50）
+newdata <- data.frame(TV=100, radio=50, newspaper=50)
+pred <- predict(model, newdata)
+cat(sprintf("予測値 = %.2f\n", pred))
+```
+## 3-7
+
+```{r}
+# ライブラリ
+library(readr)
+
+# データ読み込み
+url <- "https://www.statlearning.com/s/Advertising.csv"
+data <- read_csv(url)
+
+# デザイン行列 X（切片 + TV, radio, newspaper）
+X <- as.matrix(cbind(1, data[, c("TV", "radio", "newspaper")]))
+
+# 目的変数 y
+y <- as.matrix(data$sales)
+
+# Hat 行列 H の計算
+H <- X %*% solve(t(X) %*% X) %*% t(X)
+
+# Hat 行列の跡（trace）
+trace_H <- sum(diag(H))
+cat("ans =", trace_H, "\n")
+```
+
+## 3-8
+
+```{r}
+# ライブラリ
+library(readr)
+
+# データ読み込み
+url <- "https://www.statlearning.com/s/Advertising.csv"
+data <- read_csv(url, col_names = TRUE)
+
+# 列名を Python と同じに
+colnames(data) <- c("index", "TV", "radio", "newspaper", "sales")
+
+
+# index を使わないモデル
+model1 <- lm(sales ~ TV + radio + newspaper, data = data)
+r2_1 <- summary(model1)$r.squared
+adj_r2_1 <- summary(model1)$adj.r.squared
+
+cat("【index なし】\n")
+cat(sprintf("R^2 = %.6f\n", r2_1))
+cat(sprintf("Adjusted R^2 = %.6f\n\n", adj_r2_1))
+
+# index を含めたモデル
+
+model2 <- lm(sales ~ index + TV + radio + newspaper, data = data)
+r2_2 <- summary(model2)$r.squared
+adj_r2_2 <- summary(model2)$adj.r.squared
+
+cat("【index あり】\n")
+cat(sprintf("R^2 = %.6f\n", r2_2))
+cat(sprintf("Adjusted R^2 = %.6f\n\n", adj_r2_2))
+
+
+# 差を確認
+cat(sprintf("R^2 difference = %.6f\n", r2_2 - r2_1))
+cat(sprintf("Adjusted R^2 difference = %.6f\n", adj_r2_2 - adj_r2_1))
+```
+
+## 3-9
+
+```{r}
+# ライブラリ
+library(MASS)
+
+# データ
+x1 <- c(1, 1, 2, 3)
+x2 <- c(2, 3, 5, 7)
+y  <- c(3, 6, 3, 6)
+
+# モデル1: x1, x2
+X1 <- cbind(1, x1, x2)  # 切片 + x1 + x2
+
+# 最小二乗法（擬似逆行列）
+beta1 <- ginv(X1) %*% y
+pred1 <- X1 %*% beta1
+rmse1 <- sqrt(mean((pred1 - y)^2))
+
+
+# モデル2: x1, x2, x3 = x1+x2
+x3 <- x1 + x2
+X2 <- cbind(1, x1, x2, x3)
+
+beta2 <- ginv(X2) %*% y
+pred2 <- X2 %*% beta2
+rmse2 <- sqrt(mean((pred2 - y)^2))
+
+# 結果出力
+cat("RMSE (x1, x2):", rmse1, "\n")
+cat("RMSE (x1, x2, x3):", rmse2, "\n")
+
+```
