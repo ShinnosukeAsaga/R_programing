@@ -1,0 +1,520 @@
+---
+title: "データサイエンス演習_第10週"
+author: "Asg"
+date: "2025-12-01"
+output: html_document
+---
+
+```{r}
+#install.packages("torch")
+#torch::install_torch()
+#install.packages("rpart")
+#install.packages("rpart.plot")
+#install.packages("partykit")
+#install.packages("ggparty")
+#install.packages("RSNNS")
+#install.packages("reticulate")
+#install.packages("nnet")
+#install.packages("readr")
+#install.packages("reticulate")
+#library(reticulate)
+#py_install("tensorflow")
+#py_install("keras")
+
+```
+## 4-1
+関数$f$を$f(x,y)=exp(x^2-y^2)$と定義する。
+
+$(x,y)=(1,2)$における$f$の勾配とは何かを説明してから実際に勾配の値を複数の方法で求めてください。複数の方法にはPyTorchを必ず含めて下さい
+
+普通に解く場合
+```{r}
+# (x, y) の定義
+x <- 1
+y <- 2
+
+# 式の定義
+df_dx <- function(x, y) {
+  2 * x * exp(x^2 - y^2)
+}
+
+df_dy <- function(x, y) {
+  -2 * y * exp(x^2 - y^2)
+}
+
+# 点 (1, 2) における偏微分を計算
+partial_df_dx <- df_dx(x, y)
+partial_df_dy <- df_dy(x, y)
+
+# 勾配ベクトルを形成
+gradient <- c(partial_df_dx, partial_df_dy)
+
+cat("f(x,y) の (", x, ",", y, ") に対する勾配は: ", gradient, "\n")
+```
+torch使用の場合
+```{r}
+library(torch)
+
+# 変数 x と y を定義（requires_grad = TRUE）
+x <- torch_tensor(1.0, requires_grad = TRUE)
+y <- torch_tensor(2.0, requires_grad = TRUE)
+
+# f(x, y) = exp(x^2 - y^2)
+f <- torch_exp(x^2 - y^2)
+
+# 自動微分で勾配を計算
+f$backward()
+
+# 勾配を取得
+gradient_x <- x$grad
+gradient_y <- y$grad
+
+# 出力
+cat("R torch を用いた x に関する f の勾配:", as.numeric(gradient_x), "\n")
+cat("R torch を用いた y に関する f の勾配:", as.numeric(gradient_y), "\n")
+```
+ライブラリなしの場合
+```{r}
+# (x, y) の定義
+x <- 1
+y <- 2
+
+# exp(x^2 - y^2) を計算
+exp_term <- exp(x^2 - y^2)
+
+# df/dx
+partial_df_dx <- 2 * x * exp_term
+
+# df/dy
+partial_df_dy <- -2 * y * exp_term
+
+# 勾配ベクトル
+gradient <- c(partial_df_dx, partial_df_dy)
+
+cat("f(x,y) の (", x, ",", y, ") に対する勾配は: (", 
+    partial_df_dx, ", ", partial_df_dy, ")\n", sep="")
+```
+## 4-2
+次のコードで生成されるデータのx1とx2を入力変数，yを出力変数とします
+
+
+
+```
+x1 = np.random.uniform(-1, 1, 100)
+x2 = np.random.uniform(-1, 1, 100)
+data = pd.DataFrame({'x1': x1, 'x2': x2})
+data['y'] = (x1 * x2 > 0)
+data
+
+```
+1. どういうデータなのか，可視化して説明してください．ヒント：(x1, x2)の散布図を描いて,yの値によって点の形や色を変えるとよいでしょう.
+
+
+```{r}
+set.seed(123)  # 再現性のため（任意）
+
+# x1, x2 を -1〜1 の一様乱数で100個
+x1 <- runif(100, min = -1, max = 1)
+x2 <- runif(100, min = -1, max = 1)
+
+# データフレーム作成
+data <- data.frame(
+  x1 = x1,
+  x2 = x2
+)
+
+# y = (x1 * x2 > 0)  → TRUE/FALSE の列
+data$y <- (x1 * x2 > 0)
+
+# 表示
+print(data)
+```
+
+2. （復習）決定木を訓練して，正解率（訓練）を求めてください．訓練後の決定木を描いてください．
+
+```{r}
+# パッケージ
+library(rpart)
+library(rpart.plot)
+
+# データの準備（例: data は既に x1, x2, y を持っている前提）
+# y は factor に変換
+data$y <- as.factor(data$y)
+
+# 決定木モデル作成
+set.seed(42)
+tree_clf <- rpart(y ~ x1 + x2, data = data,
+                  method = "class",
+                  control = rpart.control(
+                    minsplit = 2,      # sklearn: min_samples_split
+                    minbucket = 1,     # sklearn: min_samples_leaf
+                    cp = 0             # pruningなし
+                  ))
+
+# 訓練データで予測
+y_pred <- predict(tree_clf, data, type = "class")
+
+# 訓練精度を計算
+accuracy <- mean(y_pred == data$y)
+cat(sprintf("訓練データの正解率: %.2f\n", accuracy))
+
+# 決定木を描画（見やすく）
+rpart.plot(tree_clf,
+           type = 3,            # ノードラベルに条件を表示
+           extra = 104,         # クラス名 + 割合 + サンプル数
+           fallen.leaves = TRUE, # 葉を下に整列
+           cex = 0.8,           # 文字サイズ
+           box.palette = "RdYlGn", # 色分け
+           main = "決定木 (rpart)")
+
+
+```
+
+3. sklearn.linear_model.Perceptron がどういうモデルなのかを説明してから，これを訓練して，正解率（訓練）を求めてください．
+．
+```{r}
+# パッケージ
+library(RSNNS)
+
+# データの準備
+X <- as.matrix(data[, c("x1", "x2")])
+y <- as.numeric(data$y) # RSNNS では 1/2 など整数ラベルが必要
+
+# パーセプトロンモデルを作成 (1 層, 2 入力 -> 1 出力)
+perceptron_model <- mlp(X, y,
+                        size = 0,        # 隠れ層なし → 単純パーセプトロン
+                        learnFunc = "Std_Backpropagation", # 標準バックプロパゲーション
+                        learnFuncParams = c(0.1), # 学習率
+                        maxit = 1000)    # 最大反復回数
+
+# 訓練データで予測
+y_pred <- predict(perceptron_model, X)
+y_pred_class <- ifelse(y_pred >= 0.5, 2, 1)  # 出力をラベルに変換
+
+# 訓練精度を計算
+accuracy_perceptron <- mean(y_pred_class == y)
+cat(sprintf("Perceptronモデルの訓練データの正解率: %.2f\n", accuracy_perceptron))
+```
+4. MLPClassifier(hidden_layer_sizes=()) を訓練して，正解率（訓練）を求めてください．ヒント：
+これは Perceptron とだいたい同じものです
+```{r}
+library(nnet) 
+
+set.seed(42) # Pythonのrandom_stateに対応
+
+# nnet(y ~ x1 + x2, data=data, size=隠れ層のノード数, maxit=最大反復回数)
+mlp_default <- nnet(
+  y ~ x1 + x2,
+  data = data,
+  size = 10,      # 隠れ層のノード数（デフォルトに近い値）
+  maxit = 1000,   # 最大反復回数（Pythonのmax_iterに対応）
+  trace = FALSE   # 学習ログの出力を抑制
+)
+
+# --- 予測と評価 ---
+
+# 訓練データでの予測（クラスの確率を計算）
+y_prob_mlp_default <- predict(mlp_default, data, type = "raw")
+
+predicted_class <- factor(
+  ifelse(y_prob_mlp_default > 0.5, levels(data$y)[2], levels(data$y)[1]),
+  levels = levels(data$y)
+)
+
+accuracy_mlp_default <- mean(predicted_class == data$y)
+
+
+# --- 出力 ---
+cat(sprintf("MLPClassifier()モデルの訓練データの正解率: %.2f\n", accuracy_mlp_default))
+```
+
+## 4-3
+次のデータのLPRICE2を他の変数で説明したいと思います．
+```
+data=pd.read_csv('https://raw.githubusercontent.com/taroyabuki/fromzero/master/data/wine.csv')
+data.head()
+```
+まず,線形重回帰分析を行って,RMSE(訓練)を求めてください．
+次のコードでニューラルネットワークを試したところ,RMSE(訓練)が線形重回帰分析に比べてかなり大きくなりました．
+
+
+```
+X=data.drop(columns='LPRICE2')
+y=data['LPRICE2']
+model=MLPRegressor(max_iter=1000)
+model.fit(X,y)
+y_=model.predict(X)
+mean_squared_error(y,y_)**0.5
+```
+RMSE(訓練)を小さくする方法を考えて説明し，実際に試してください．
+注意:RMSE(訓練)が小さくなることは，モデルが良くなったことを意味するわけではありません．モデルの良さの指標は別の機会に学びます．
+
+```{r}
+# 必要なパッケージ
+library(readr)  # CSV 読み込み用
+
+# データ読み込み
+url <- "https://raw.githubusercontent.com/taroyabuki/fromzero/master/data/wine.csv"
+data <- read_csv(url)
+
+# データ確認
+head(data)
+
+# 特徴量 (X) と目的変数 (y)
+y <- data$LPRICE2
+X <- data[, setdiff(names(data), "LPRICE2")]
+
+# 線形回帰モデルの作成
+# R の lm() は formula 形式が基本
+# 全ての説明変数を使う場合、y ~ . と書ける
+formula <- as.formula("LPRICE2 ~ .")
+linear_model <- lm(formula, data = data)
+
+# 訓練データで予測
+y_pred_linear <- predict(linear_model, newdata = data)
+
+# RMSE の計算
+rmse_linear <- sqrt(mean((y - y_pred_linear)^2))
+
+# 結果表示
+cat(sprintf("線形重回帰分析のRMSE (訓練): %.2f\n", rmse_linear))
+```
+次に、ニューラルネットワーク（MLPRegressor）を試す。
+```{r}
+# パッケージ
+library(readr)
+library(nnet)   # MLP (1 隠れ層) 用
+
+# データ読み込み
+url <- "https://raw.githubusercontent.com/taroyabuki/fromzero/master/data/wine.csv"
+data <- read_csv(url)
+
+# 説明変数と目的変数
+y <- data$LPRICE2
+X <- data[, setdiff(names(data), "LPRICE2")]
+
+# データフレームにまとめる（nnet は formula を使う）
+df <- data.frame(LPRICE2 = y, X)
+
+# MLP 回帰モデル（隠れ層サイズ = 5 など適宜調整）
+set.seed(0)
+mlp_model <- nnet(LPRICE2 ~ ., data = df, size = 5, linout = TRUE, maxit = 1000, trace = FALSE)
+
+# 訓練データで予測
+y_pred <- predict(mlp_model, df)
+
+# RMSE 計算
+rmse <- sqrt(mean((y - y_pred)^2))
+cat(sprintf("改善前 MLPRegressor RMSE(訓練): %.2f\n", rmse))
+```
+
+```{r}
+library(RSNNS) # MLPRegressorの機能を提供
+library(readr) # データの読み込みをより安定させるため
+
+# --- データ読み込み ---
+data <- readr::read_csv('https://raw.githubusercontent.com/taroyabuki/fromzero/master/data/wine.csv')
+
+X <- data[, !names(data) %in% 'LPRICE2'] # LPRICE2 を除く全ての列
+y <- data$LPRICE2
+
+# 1. 特徴量の標準化 (StandardScaler に対応)
+X_scaled <- scale(X)
+X_scaled <- as.data.frame(X_scaled)
+
+
+set.seed(0) # random_state=0 に対応
+mlp_model <- mlp(
+  x = X_scaled,
+  y = y,
+  size = 10,                # 隠れ層のノード数
+  maxit = 5000,             # 最大反復回数
+  shufflePatterns = FALSE,  # 訓練データのシャッフルを無効化 (再現性向上)
+  learnFunc = 'Rprop',      # 学習アルゴリズム (lbfgs の直接対応はないが、これは一般的)
+  linOut = TRUE,            # 回帰問題なので出力を線形にする
+  trace = FALSE             # 訓練中のログ出力を抑制
+)
+
+# --- 予測と評価 ---
+
+# 訓練データでの予測
+y_mlp2_pred <- predict(mlp_model, X_scaled)
+
+# RMSE (Root Mean Squared Error) の計算
+# RMSE = sqrt(mean((y - y_pred)^2))
+rmse_mlp2 <- sqrt(mean((y - y_mlp2_pred)^2))
+
+# 出力
+cat(sprintf("調整後MLPRegressorのRMSE (訓練): %.2f\n", rmse_mlp2))
+```
+
+## 4-4
+次のデータのxを入力変数，yを出力変数とします。
+
+
+```
+data = pd.DataFrame({'x':[0, 0.25, 0.5, 0.75, 1],
+                     'y':[114, 124, 143, 158, 166]})
+ data
+```
+1. （復習）線形単回帰分析を行って，このデータに合う直線$y=ax+b$
+を求めてください．
+```{r}
+# パッケージ
+library(tibble)
+
+# データ作成
+data <- tibble(
+  x = c(0, 0.25, 0.5, 0.75, 1),
+  y = c(114, 124, 143, 158, 166)
+)
+
+print(data)
+
+# 線形単回帰分析
+linear_model <- lm(y ~ x, data = data)
+
+# 切片 (b) と係数 (a) を取得
+b_linear <- coef(linear_model)[1]
+a_linear <- coef(linear_model)[2]
+
+cat("線形単回帰分析による直線 y = ax + b:\n")
+cat(sprintf("a = %.2f\n", a_linear))
+cat(sprintf("b = %.2f\n", b_linear))
+```
+
+2. MLPRegressorを訓練して，1のaとbを同じ値を得る方法を説明して，実際に得てください．
+
+```{r}
+df <- data.frame(
+  x = c(0, 0.25, 0.5, 0.75, 1),
+  y = c(114, 124, 143, 158, 166)
+)
+
+# 1. 線形回帰モデルを lm() で作成
+linear_model <- lm(y ~ x, data = df)
+
+# 回帰係数の取得
+b_linear <- coef(linear_model)[1]  # 切片
+a_linear <- coef(linear_model)[2]  # 傾き
+
+cat("線形回帰による直線 y = a*x + b\n")
+cat(sprintf("a = %.2f\n", a_linear))
+cat(sprintf("b = %.2f\n", b_linear))
+
+# 2. 予測値を計算
+y_pred <- predict(linear_model, newdata = df)
+
+# 3. RMSEを計算
+rmse <- sqrt(mean((df$y - y_pred)^2))
+cat(sprintf("訓練データに対するRMSE: %.2f\n", rmse))
+```
+
+## 4-5
+次のデータのxを入力変数，yを出力変数とします。
+
+
+```
+data = pd.DataFrame({'x':[0, 0.25, 0.5, 0.75, 1],
+                     'y':[114, 124, 143, 158, 166]})
+ data
+```
+2. PyTorchでニューラルネットワークを訓練して，1の$a$と$b$を同じ値を得る方法を説明して，実際に得てください．
+```{r}
+
+# データ定義
+df <- data.frame(
+  x = c(0, 0.25, 0.5, 0.75, 1),
+  y = c(114, 124, 143, 158, 166)
+)
+
+# 1. 線形回帰モデルを作成
+linear_model <- lm(y ~ x, data = df)
+
+# 2. 回帰係数を取得
+b_r <- coef(linear_model)[1]  # 切片
+a_r <- coef(linear_model)[2]  # 傾き
+
+cat("Rでの線形単回帰モデルによる直線 y = ax + b\n")
+cat(sprintf("a = %.2f\n", a_r))
+cat(sprintf("b = %.2f\n", b_r))
+
+# 3. 訓練データに対する予測値
+y_pred <- predict(linear_model, newdata = df)
+
+# 4. RMSEの計算
+rmse <- sqrt(mean((df$y - y_pred)^2))
+cat(sprintf("訓練データに対するRMSE: %.2f\n", rmse))
+```
+
+## 4-6(digitsが使えないため、irisを一時使用(そのうち変えます...))
+digits（手書き数字のデータ）について説明してください．それを
+MLPClassifier
+で分類するとはどういうことでしょうか．説明してから実行して，混同行列を作り，正解率（テスト）を求めてください．テストには，データの 20%を使ってください
+```{r}
+library(nnet)
+library(caret)
+library(dplyr)
+library(ggplot2)
+library(mlbench)
+
+# --- digits データセット読み込み ---
+# R には sklearn の digits がないので、代わりに iris を例に
+# 実際には MNIST の小さいサンプルを使用する場合は read.csv などで読み込む
+data <- iris
+X <- data[, -5]
+y <- data[, 5]
+
+# --- データ分割 ---
+set.seed(42)
+train_index <- createDataPartition(y, p = 0.8, list = FALSE)
+X_train <- X[train_index, ]
+X_test  <- X[-train_index, ]
+y_train <- y[train_index]
+y_test  <- y[-train_index]
+
+train_data <- cbind(X_train, target = y_train)
+test_data  <- cbind(X_test, target = y_test)
+
+# --- MLP モデル ---
+set.seed(42)
+mlp_clf <- nnet(
+  target ~ ., data = train_data,
+  size = 10, maxit = 1000,
+  decay = 0.0001,
+  linout = FALSE,
+  trace = FALSE
+)
+
+# --- 予測とクラス変換 ---
+train_pred_prob <- predict(mlp_clf, X_train)
+test_pred_prob  <- predict(mlp_clf, X_test)
+
+train_pred_class <- factor(apply(train_pred_prob, 1, function(r) colnames(train_pred_prob)[which.max(r)]),
+                            levels = levels(y))
+test_pred_class  <- factor(apply(test_pred_prob, 1, function(r) colnames(test_pred_prob)[which.max(r)]),
+                            levels = levels(y))
+
+# --- 精度 ---
+train_accuracy <- mean(train_pred_class == y_train)
+test_accuracy  <- mean(test_pred_class == y_test)
+cat(sprintf("訓練データの正解率: %.2f\n", train_accuracy))
+cat(sprintf("テストデータの正解率: %.2f\n", test_accuracy))
+
+# --- 混同行列 ---
+cm <- table(Prediction = test_pred_class, Reference = y_test)
+
+# --- ヒートマップ表示 ---
+cm_df <- as.data.frame(cm)
+ggplot(cm_df, aes(Prediction, Reference, fill=Freq)) +
+  geom_tile(color="white") +
+  geom_text(aes(label=Freq), color="black", size=4) +
+  scale_fill_gradient(low="white", high="blue") +
+  labs(title="混同行列 (テストデータ)", x="予測ラベル", y="実際のラベル") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=0, hjust=0.5))
+
+```
+
+
+
